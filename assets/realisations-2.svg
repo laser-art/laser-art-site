@@ -1,0 +1,7 @@
+<svg width="800" height="520" viewBox="0 0 800 520" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="800" height="520" rx="24" fill="#0f1014" />
+  <rect x="90" y="80" width="360" height="360" rx="24" fill="#14161d" stroke="#d4af37" stroke-width="3" />
+  <rect x="430" y="120" width="280" height="280" rx="22" fill="#0f1014" stroke="#d4af37" stroke-width="2" stroke-dasharray="12 10" />
+  <text x="130" y="180" fill="#e6c56c" font-family="'Playfair Display', serif" font-size="34">Signalétique</text>
+  <text x="130" y="230" fill="#cfd4df" font-family="'Manrope', sans-serif" font-size="20">Numéros, enseignes, pictogrammes</text>
+</svg>
