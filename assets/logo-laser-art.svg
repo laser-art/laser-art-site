@@ -1,0 +1,32 @@
+<svg width="320" height="120" viewBox="0 0 320 120" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Laser Art - Logo</title>
+  <desc id="desc">Logo Laser Art doré sur fond sombre avec une tête de découpe et le texte Laser Art.</desc>
+  <defs>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#f5d37c" offset="0" />
+      <stop stop-color="#d4af37" offset="1" />
+    </linearGradient>
+    <linearGradient id="goldStroke" x1="0" y1="0" x2="1" y2="0">
+      <stop stop-color="#f5d37c" offset="0" />
+      <stop stop-color="#c9971a" offset="1" />
+    </linearGradient>
+  </defs>
+  <rect width="320" height="120" rx="18" fill="#0f1014" />
+  <g transform="translate(18 12)">
+    <g transform="translate(0 8)" stroke="url(#goldStroke)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none">
+      <path d="M26 14h30" />
+      <path d="M41 14v22" />
+      <path d="M34 36h14" />
+      <path d="M38 36v11" />
+      <path d="M44 36v11" />
+      <path d="M38 47l-9 12" />
+      <path d="M44 47l9 12" />
+      <circle cx="41" cy="62" r="12" />
+      <path d="M29 62h24" />
+    </g>
+    <text x="86" y="62" fill="url(#gold)" font-family="'Marcellus SC', 'Times New Roman', serif" font-size="46">LASER</text>
+    <text x="86" y="92" fill="url(#gold)" font-family="'Marcellus SC', 'Times New Roman', serif" font-size="26" letter-spacing="0.16em">ART</text>
+    <line x1="86" y1="102" x2="164" y2="102" stroke="url(#goldStroke)" stroke-width="3" stroke-linecap="round" />
+    <line x1="224" y1="102" x2="280" y2="102" stroke="url(#goldStroke)" stroke-width="3" stroke-linecap="round" />
+  </g>
+</svg>
