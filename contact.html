@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Contactez Laser Art pour vos projets de découpe et gravure laser : devis, conseils matériaux et délais.">
+  <link rel="canonical" href="https://laser-art.example.com/contact.html">
+  <title>Contact | Laser Art</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <header>
+    <div class="container navbar">
+      <a class="brand" href="index.html">
+        <span class="brand-mark">LA</span>
+        <span>Laser Art</span>
+      </a>
+      <button class="menu-toggle" aria-label="Ouvrir le menu">Menu</button>
+      <nav aria-label="Navigation principale">
+        <ul>
+          <li><a href="index.html">Accueil</a></li>
+          <li><a href="realisations.html">Réalisations</a></li>
+          <li><a href="services.html">Services</a></li>
+          <li><a href="apropos.html">À propos</a></li>
+          <li><a href="contact.html">Contact</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="container hero-grid">
+        <div>
+          <span class="eyebrow">Contact</span>
+          <h1>Parlons de votre projet</h1>
+          <p class="lead">Expliquez-nous votre besoin : matière, quantité, dimensions, délai. Nous revenons vers vous sous 24h avec une recommandation claire et un devis détaillé.</p>
+        </div>
+        <div class="hero-visual">
+          <img src="/assets/realisations-3.svg" alt="Formulaire de contact Laser Art" loading="lazy">
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container contact-card">
+        <div class="card">
+          <h2>Formulaire de contact</h2>
+          <p>Nous vous répondons rapidement avec une estimation et, si besoin, une proposition de prototype.</p>
+          <div class="alert" data-alert hidden role="status"></div>
+          <form class="form" data-contact-form>
+            <div>
+              <label for="nom">Votre nom</label>
+              <input type="text" id="nom" name="nom" placeholder="Votre nom complet" required>
+            </div>
+            <div>
+              <label for="email">Votre e-mail</label>
+              <input type="email" id="email" name="email" placeholder="vous@example.com" required>
+            </div>
+            <div>
+              <label for="telephone">Votre téléphone</label>
+              <input type="tel" id="telephone" name="telephone" placeholder="+33" required>
+            </div>
+            <div>
+              <label for="service">Service souhaité</label>
+              <select id="service" name="service">
+                <option>Découpe laser</option>
+                <option>Gravure</option>
+                <option>Prototype</option>
+                <option>Pose et installation</option>
+                <option>Autre demande</option>
+              </select>
+            </div>
+            <div>
+              <label for="message">Détails du projet</label>
+              <textarea id="message" name="message" placeholder="Format, matière, délai, adresse de livraison..."></textarea>
+            </div>
+            <button class="btn" type="submit">Envoyer ma demande</button>
+          </form>
+        </div>
+        <div class="contact-details">
+          <div class="card">
+            <h3>Coordonnées</h3>
+            <p><strong>E-mail :</strong> contact@laser-art.fr</p>
+            <p><strong>Téléphone :</strong> +33 (0)4 00 00 00 00</p>
+          </div>
+          <div class="card">
+            <h3>Horaires</h3>
+            <p>Du lundi au vendredi, 8h30 — 18h30</p>
+            <p>Réponse garantie sous 24h ouvrées.</p>
+          </div>
+          <div class="card">
+            <h3>Atelier</h3>
+            <p>Région Auvergne-Rhône-Alpes</p>
+            <p>Production locale et réseau logistique national.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      <div style="display:flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
+        <div>
+          <div class="brand" style="padding:6px 0;">
+            <span class="brand-mark">LA</span>
+            <span>Laser Art</span>
+          </div>
+          <div>Atelier de découpe &amp; gravure laser premium</div>
+          <div class="social">
+            <a href="mailto:contact@laser-art.fr">contact@laser-art.fr</a>
+            <a href="tel:+33400000000">+33 (0)4 00 00 00 00</a>
+          </div>
+        </div>
+        <div>
+          <div>&copy; <span id="year"></span> Laser Art. Tous droits réservés.</div>
+        </div>
+      </div>
+    </div>
+  </footer>
+  <script src="/js/script.js"></script>
+</body>
+</html>

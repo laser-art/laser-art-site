@@ -1,0 +1,7 @@
+<svg width="800" height="520" viewBox="0 0 800 520" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="800" height="520" rx="24" fill="#0f1014" />
+  <rect x="120" y="120" width="560" height="280" rx="20" fill="#14161d" stroke="#d4af37" stroke-width="3" />
+  <path d="M180 260H620" stroke="#d4af37" stroke-width="3" stroke-linecap="round" stroke-dasharray="14 10" />
+  <text x="160" y="240" fill="#e6c56c" font-family="'Playfair Display', serif" font-size="36">Création sur métal</text>
+  <text x="160" y="300" fill="#cfd4df" font-family="'Manrope', sans-serif" font-size="22">Découpe et gravure de panneaux premium</text>
+</svg>
