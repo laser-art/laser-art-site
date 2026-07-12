@@ -1,4 +1,4 @@
-name: Build Kick Sac Fighter V6 APK
+name: Build Kick Sac Fighter V7 APK
 
 on:
   workflow_dispatch:
@@ -17,12 +17,12 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Clean and build V6 APK
+      - name: Clean and build V7 APK
         run: |
           gradle -p kick-sac-android clean app:assembleDebug
-          cp kick-sac-android/app/build/outputs/apk/debug/app-debug.apk Kick-Sac-Fighter-V6.apk
-      - name: Upload V6 APK
+          cp kick-sac-android/app/build/outputs/apk/debug/app-debug.apk Kick-Sac-Fighter-V7.apk
+      - name: Upload V7 APK
         uses: actions/upload-artifact@v4
         with:
-          name: Kick-Sac-Fighter-V6
-          path: Kick-Sac-Fighter-V6.apk
+          name: Kick-Sac-Fighter-V7
+          path: Kick-Sac-Fighter-V7.apk
