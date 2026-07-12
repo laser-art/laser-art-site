@@ -2,6 +2,8 @@ package be.laserart.kicksac;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.content.Intent;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
@@ -33,7 +35,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 view.evaluateJavascript(
-                    "(function(){var s=document.createElement('script');s.src='coach-v4.js';document.body.appendChild(s);})();",
+                    "(function(){var a=document.createElement('script');a.src='coach-v4.js';a.onload=function(){var b=document.createElement('script');b.src='coach-v5.js';document.body.appendChild(b);};document.body.appendChild(a);})();",
                     null
                 );
             }
@@ -74,6 +76,17 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             if (vibrator != null && vibrator.hasVibrator()) {
                 vibrator.vibrate(VibrationEffect.createOneShot(Math.max(20, milliseconds), VibrationEffect.DEFAULT_AMPLITUDE));
             }
+        }
+
+        @JavascriptInterface
+        public void openVideo(String url) {
+            runOnUiThread(() -> {
+                try {
+                    Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                    startActivity(intent);
+                } catch (Exception ignored) {
+                }
+            });
         }
     }
 
