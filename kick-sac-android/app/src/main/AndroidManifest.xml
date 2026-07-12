@@ -2,7 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application
         android:allowBackup="true"
-        android:label="Kick Sac Fighter V6"
+        android:label="Kick Sac Fighter V7"
         android:theme="@style/AppTheme"
         android:usesCleartextTraffic="false">
         <activity
