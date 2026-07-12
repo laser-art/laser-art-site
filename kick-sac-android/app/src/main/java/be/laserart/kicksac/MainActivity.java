@@ -33,7 +33,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 view.evaluateJavascript(
-                    "(function(){var s=document.createElement('script');s.src='coach-v3.js';document.body.appendChild(s);})();",
+                    "(function(){var s=document.createElement('script');s.src='coach-v4.js';document.body.appendChild(s);})();",
                     null
                 );
             }
