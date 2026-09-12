@@ -1,4 +1,4 @@
-name: Build DisplayToggle Extreme
+name: Build Magic V2 Display Diagnostic
 
 on:
   push:
@@ -16,16 +16,140 @@ jobs:
           java-version: '17'
       - name: Clone DisplayToggle Extreme
         run: git clone --depth 1 https://github.com/xe5700/DisplayToggleExtreme.git displaytoggle
+      - name: Patch diagnostic app
+        run: |
+          cat > displaytoggle/app/src/main/aidl/com/displaytoggle/extreme/IDisplayToggleService.aidl <<'EOF'
+          package com.displaytoggle.extreme;
+          interface IDisplayToggleService {
+              int toggleDisplays(int mode, in int[] whitelistDisplayIds);
+              long[] getPhysicalDisplayIds();
+          }
+          EOF
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('displaytoggle/app/src/main/java/com/displaytoggle/extreme/DisplayToggleService.java')
+          s=p.read_text()
+          marker='    @Override\n    public int toggleDisplays(int mode, int[] whitelistDisplayIds) {'
+          method='''    @Override\n    public long[] getPhysicalDisplayIds() {\n        try {\n            java.util.List<Pair> list = getDisplayTokens();\n            long[] out = new long[list.size()];\n            for (int i = 0; i < list.size(); i++) out[i] = list.get(i).displayId;\n            return out;\n        } catch (Exception e) {\n            Log.e(TAG, "getPhysicalDisplayIds failed", e);\n            return new long[0];\n        }\n    }\n\n'''
+          if marker not in s: raise SystemExit('marker not found')
+          s=s.replace(marker, method+marker)
+          p.write_text(s)
+          PY
+          cat > displaytoggle/app/src/main/java/com/displaytoggle/extreme/MainActivity.java <<'EOF'
+          package com.displaytoggle.extreme;
+
+          import android.app.Activity;
+          import android.content.ComponentName;
+          import android.content.Context;
+          import android.content.ServiceConnection;
+          import android.content.pm.PackageManager;
+          import android.hardware.display.DisplayManager;
+          import android.os.Bundle;
+          import android.os.Handler;
+          import android.os.IBinder;
+          import android.os.Looper;
+          import android.view.Display;
+          import android.view.Gravity;
+          import android.widget.LinearLayout;
+          import android.widget.ScrollView;
+          import android.widget.TextView;
+          import rikka.shizuku.Shizuku;
+          import java.util.Arrays;
+
+          public class MainActivity extends Activity {
+              private TextView text;
+              private final Handler h = new Handler(Looper.getMainLooper());
+              private DisplayManager dm;
+              private Shizuku.UserServiceArgs args;
+              private long[] physicalIds = new long[0];
+
+              private final Runnable refresh = new Runnable() {
+                  @Override public void run() { updateText(); queryPhysicalIds(); h.postDelayed(this, 500); }
+              };
+
+              @Override protected void onCreate(Bundle b) {
+                  super.onCreate(b);
+                  dm = getSystemService(DisplayManager.class);
+                  args = new Shizuku.UserServiceArgs(new ComponentName(this, DisplayToggleService.class))
+                          .daemon(false).processNameSuffix("display_diag");
+                  LinearLayout box = new LinearLayout(this);
+                  box.setOrientation(LinearLayout.VERTICAL);
+                  box.setPadding(24,24,24,24);
+                  TextView title = new TextView(this);
+                  title.setText("MAGIC V2 - DISPLAY DIAGNOSTIC");
+                  title.setTextSize(20f);
+                  text = new TextView(this);
+                  text.setTextSize(14f);
+                  text.setTextIsSelectable(true);
+                  box.addView(title);
+                  box.addView(text);
+                  ScrollView sv = new ScrollView(this);
+                  sv.addView(box);
+                  setContentView(sv);
+                  if (Shizuku.pingBinder() && Shizuku.checkSelfPermission()!=PackageManager.PERMISSION_GRANTED) {
+                      Shizuku.requestPermission(42);
+                  }
+              }
+
+              @Override protected void onResume() { super.onResume(); h.post(refresh); }
+              @Override protected void onPause() { h.removeCallbacks(refresh); super.onPause(); }
+
+              private String stateName(int s) {
+                  switch (s) {
+                      case Display.STATE_OFF: return "OFF";
+                      case Display.STATE_ON: return "ON";
+                      case Display.STATE_DOZE: return "DOZE";
+                      case Display.STATE_DOZE_SUSPEND: return "DOZE_SUSPEND";
+                      default: return String.valueOf(s);
+                  }
+              }
+
+              private void updateText() {
+                  StringBuilder sb = new StringBuilder();
+                  sb.append("Shizuku: ").append(Shizuku.pingBinder()?"RUNNING":"STOPPED").append("\n");
+                  sb.append("Permission: ").append(Shizuku.checkSelfPermission()==0?"GRANTED":"NO").append("\n\n");
+                  sb.append("PHYSICAL DISPLAY IDS (SurfaceControl/Shizuku):\n");
+                  sb.append(Arrays.toString(physicalIds)).append("\n");
+                  sb.append("count=").append(physicalIds.length).append("\n\n");
+                  Display[] ds = dm.getDisplays();
+                  sb.append("ANDROID DISPLAYMANAGER: count=").append(ds.length).append("\n");
+                  for (Display d: ds) {
+                      Display.Mode m = d.getMode();
+                      sb.append("\nID ").append(d.getDisplayId())
+                        .append("  name=").append(d.getName())
+                        .append("\nstate=").append(stateName(d.getState()))
+                        .append("  valid=").append(d.isValid())
+                        .append("\nmode=").append(m.getPhysicalWidth()).append("x").append(m.getPhysicalHeight())
+                        .append(" @ ").append(String.format("%.1f",m.getRefreshRate())).append("Hz")
+                        .append("\nrotation=").append(d.getRotation())
+                        .append("\n");
+                  }
+                  sb.append("\n\nTEST: laisse cette app ouverte et ouvre/ferme le telephone.\nSi PHYSICAL DISPLAY IDS montre 2 valeurs, les 2 dalles sont pilotables separement en principe.");
+                  text.setText(sb.toString());
+              }
+
+              private void queryPhysicalIds() {
+                  if (!Shizuku.pingBinder() || Shizuku.checkSelfPermission()!=0) return;
+                  Shizuku.bindUserService(args, new ServiceConnection() {
+                      @Override public void onServiceConnected(ComponentName n, IBinder b) {
+                          try { physicalIds = IDisplayToggleService.Stub.asInterface(b).getPhysicalDisplayIds(); }
+                          catch (Exception e) { physicalIds = new long[0]; }
+                      }
+                      @Override public void onServiceDisconnected(ComponentName n) {}
+                  });
+              }
+          }
+          EOF
       - name: Install Gradle
         run: |
           wget -q https://services.gradle.org/distributions/gradle-8.7-bin.zip -O /tmp/gradle.zip
           unzip -q /tmp/gradle.zip -d /tmp
-      - name: Build debug APK
+      - name: Build diagnostic APK
         working-directory: displaytoggle
         run: /tmp/gradle-8.7/bin/gradle assembleDebug --stacktrace
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: DisplayToggleExtreme-debug
+          name: MagicV2-Display-Diagnostic
           path: displaytoggle/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
