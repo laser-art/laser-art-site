@@ -16,11 +16,13 @@ jobs:
           java-version: '17'
       - name: Clone DisplayToggle Extreme
         run: git clone --depth 1 https://github.com/xe5700/DisplayToggleExtreme.git displaytoggle
+      - name: Install Gradle
+        run: |
+          wget -q https://services.gradle.org/distributions/gradle-8.7-bin.zip -O /tmp/gradle.zip
+          unzip -q /tmp/gradle.zip -d /tmp
       - name: Build release APK
         working-directory: displaytoggle
-        run: |
-          chmod +x gradlew
-          ./gradlew assembleRelease --stacktrace
+        run: /tmp/gradle-8.7/bin/gradle assembleRelease --stacktrace
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
