@@ -2,40 +2,124 @@ from pathlib import Path
 
 root = Path('displaytoggle')
 
-# Keep the original proven package/application id.
-manifest = root / 'app/src/main/AndroidManifest.xml'
-ms = manifest.read_text()
-if 'android.permission.FOREGROUND_SERVICE' not in ms:
-    ms = ms.replace('<uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />', '<uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />')
-service_xml = '''\n        <service\n            android:name=".HingeControllerService"\n            android:exported="false"\n            android:foregroundServiceType="specialUse">\n            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="Magic V2 hinge display controller" />\n        </service>\n'''
-if '.HingeControllerService' not in ms:
-    ms = ms.replace('    </application>', service_xml + '    </application>')
-manifest.write_text(ms)
-
-(root / 'app/src/main/aidl/com/displaytoggle/extreme/IDisplayToggleService.aidl').write_text('''package com.displaytoggle.extreme;\ninterface IDisplayToggleService {\n    int toggleDisplays(int mode, in int[] whitelistDisplayIds);\n    String runCommand(String command);\n}\n''')
+(root / 'app/src/main/aidl/com/displaytoggle/extreme/IDisplayToggleService.aidl').write_text('''package com.displaytoggle.extreme;\ninterface IDisplayToggleService {\n    int toggleDisplays(int mode, in int[] whitelistDisplayIds);\n    String runDualProbe(int mode);\n}\n''')
 
 svc = root / 'app/src/main/java/com/displaytoggle/extreme/DisplayToggleService.java'
 s = svc.read_text()
 marker = '    @Override\n    public int toggleDisplays(int mode, int[] whitelistDisplayIds) {'
 method = r'''    @Override
-    public String runCommand(String command) {
-        if (command == null) return "ERROR null command";
-        if (!(command.startsWith("cmd device_state state ") || command.equals("cmd device_state state reset") || command.equals("cmd device_state state"))) {
-            return "ERROR command not allowed";
+    public String runDualProbe(int mode) {
+        StringBuilder out = new StringBuilder();
+        out.append("MAGIC V2 DUAL SCREEN PROBE\n");
+        out.append("uid=").append(run("id")).append("\n");
+        if (mode == 0) {
+            out.append(snapshot("SNAPSHOT"));
+            return out.toString();
         }
+        if (mode == 1) {
+            // INNER ONLY
+            out.append(run("cmd device_state state reset"));
+            out.append(run("cmd device_state state 1"));
+            sleep(700);
+            out.append(snapshot("INNER ONLY"));
+            return out.toString();
+        }
+        if (mode == 2) {
+            // OUTER ONLY
+            out.append(run("cmd device_state state reset"));
+            out.append(run("cmd device_state state 4"));
+            sleep(700);
+            out.append(snapshot("OUTER ONLY"));
+            return out.toString();
+        }
+        if (mode == 3) {
+            out.append("\n=== SAFE BOTH-DISPLAY RECIPES ===\n");
+            // Recipe A: current layout + enable both logical displays.
+            out.append(run("cmd device_state state reset"));
+            out.append(run("cmd display enable-display 0"));
+            out.append(run("cmd display enable-display 1"));
+            out.append(run("cmd display power-reset 0"));
+            out.append(run("cmd display power-reset 1"));
+            sleep(900);
+            String a = snapshot("RECIPE A: RESET + ENABLE 0/1 + POWER RESET");
+            out.append(a);
+            if (bothActive(a)) { out.append("\nSUCCESS: BOTH PHYSICAL DISPLAYS ACTIVE. LEFT AS-IS.\n"); return out.toString(); }
+
+            // Recipe B: Honor coordination display mode, then enable both.
+            out.append(run("cmd device_state state 14"));
+            sleep(500);
+            out.append(run("cmd display enable-display 0"));
+            out.append(run("cmd display enable-display 1"));
+            out.append(run("cmd display power-reset 0"));
+            out.append(run("cmd display power-reset 1"));
+            sleep(900);
+            String b = snapshot("RECIPE B: STATE 14 + ENABLE 0/1");
+            out.append(b);
+            if (bothActive(b)) { out.append("\nSUCCESS: BOTH PHYSICAL DISPLAYS ACTIVE. LEFT AS-IS.\n"); return out.toString(); }
+
+            // Recipe C: cover state, then explicitly enable the inactive logical display.
+            out.append(run("cmd device_state state 4"));
+            sleep(500);
+            out.append(run("cmd display enable-display 0"));
+            out.append(run("cmd display enable-display 1"));
+            out.append(run("cmd display power-reset 0"));
+            out.append(run("cmd display power-reset 1"));
+            sleep(900);
+            String c = snapshot("RECIPE C: STATE 4 + ENABLE 0/1");
+            out.append(c);
+            if (bothActive(c)) { out.append("\nSUCCESS: BOTH PHYSICAL DISPLAYS ACTIVE. LEFT AS-IS.\n"); return out.toString(); }
+
+            out.append("\nNO SAFE RECIPE PRODUCED TWO ACTIVE PHYSICAL DISPLAYS. RESETTING.\n");
+            out.append(run("cmd device_state state reset"));
+            sleep(500);
+            out.append(snapshot("FINAL RESET"));
+            return out.toString();
+        }
+        if (mode == 4) {
+            out.append(run("cmd device_state state reset"));
+            sleep(500);
+            out.append(snapshot("RESET"));
+            return out.toString();
+        }
+        return "Unknown mode";
+    }
+
+    private boolean bothActive(String s) {
+        return s.contains("4630946846403687043 (active") && s.contains("4630946324137792644 (active");
+    }
+
+    private String snapshot(String title) {
+        StringBuilder x = new StringBuilder();
+        x.append("\n===== ").append(title).append(" =====\n");
+        x.append(run("cmd device_state state"));
+        x.append(run("cmd display get-displays"));
+        x.append(run("dumpsys display | grep -E 'mDeviceState=|mCurrentLayout=|mDisplayId=|Display State=|mState=' | head -n 180"));
+        x.append(run("dumpsys SurfaceFlinger | grep -E 'pacesetterDisplayId|Display 4630946846403687043 \\(active|inactive\\)|Display 4630946324137792644 \\(active|inactive\\)' | head -n 80"));
+        return x.toString();
+    }
+
+    private String run(String cmd) {
         StringBuilder sb = new StringBuilder();
+        sb.append("$ ").append(cmd).append('\n');
         try {
-            Process p = new ProcessBuilder("/system/bin/sh", "-c", command + " 2>&1").redirectErrorStream(true).start();
+            Process p = new ProcessBuilder("/system/bin/sh", "-c", cmd + " 2>&1").redirectErrorStream(true).start();
             java.io.BufferedReader r = new java.io.BufferedReader(new java.io.InputStreamReader(p.getInputStream()));
             String line;
-            while ((line = r.readLine()) != null) sb.append(line).append('\n');
+            int chars = 0;
+            while ((line = r.readLine()) != null) {
+                sb.append(line).append('\n');
+                chars += line.length() + 1;
+                if (chars > 60000) { sb.append("[truncated]\n"); break; }
+            }
             p.waitFor();
-            sb.append("[exit=").append(p.exitValue()).append("]");
+            sb.append("[exit=").append(p.exitValue()).append("]\n");
         } catch (Throwable e) {
-            sb.append("ERROR: ").append(e);
+            sb.append("ERROR: ").append(e).append('\n');
         }
         return sb.toString();
     }
+
+    private void sleep(long ms) { try { Thread.sleep(ms); } catch (InterruptedException ignored) {} }
 
 '''
 if marker not in s:
@@ -43,244 +127,68 @@ if marker not in s:
 s = s.replace(marker, method + marker)
 svc.write_text(s)
 
-controller = root / 'app/src/main/java/com/displaytoggle/extreme/HingeControllerService.java'
-controller.write_text(r'''package com.displaytoggle.extreme;
-
-import android.app.*;
-import android.content.*;
-import android.hardware.*;
-import android.os.*;
-import androidx.core.app.NotificationCompat;
-import rikka.shizuku.Shizuku;
-
-public class HingeControllerService extends Service implements SensorEventListener {
-    public static final String ACTION_STATUS = "com.displaytoggle.extreme.CONTROLLER_STATUS";
-    private static final String CH = "magicv2_hinge_controller";
-    private SensorManager sm;
-    private Sensor hinge;
-    private IDisplayToggleService shell;
-    private Shizuku.UserServiceArgs args;
-    private float last = Float.NaN;
-    private float closeAngle = 60f;
-    private float openAngle = 165f;
-    private int externalState = 4;
-    private boolean forcedExternal = false;
-    private boolean forcedInner = false;
-    private String lastAction = "Idle";
-
-    @Override public void onCreate() {
-        super.onCreate();
-        createChannel();
-        startForeground(7701, notification("Starting…"));
-        android.content.SharedPreferences p = getSharedPreferences("magicv2", MODE_PRIVATE);
-        closeAngle = p.getFloat("closeAngle", 60f);
-        openAngle = p.getFloat("openAngle", 165f);
-        externalState = p.getInt("externalState", 4);
-
-        sm = (SensorManager)getSystemService(SENSOR_SERVICE);
-        hinge = sm.getDefaultSensor(Sensor.TYPE_HINGE_ANGLE, true);
-        if (hinge == null) hinge = sm.getDefaultSensor(Sensor.TYPE_HINGE_ANGLE);
-        if (hinge != null) sm.registerListener(this, hinge, 8000);
-
-        try {
-            args = new Shizuku.UserServiceArgs(new ComponentName(this, DisplayToggleService.class))
-                    .daemon(false).processNameSuffix("magicv2_angle_controller_v2");
-            Shizuku.bindUserService(args, conn);
-        } catch (Throwable e) {
-            lastAction = "Shizuku bind error: " + e.getClass().getSimpleName();
-            broadcast(Float.NaN, "ERROR");
-        }
-    }
-
-    private final ServiceConnection conn = new ServiceConnection() {
-        @Override public void onServiceConnected(ComponentName n, IBinder b) {
-            shell = IDisplayToggleService.Stub.asInterface(b);
-            lastAction = "Ready";
-            updateNotif("Ready — close " + closeAngle + "°, open " + openAngle + "°");
-        }
-        @Override public void onServiceDisconnected(ComponentName n) {
-            shell = null;
-            lastAction = "Shizuku service disconnected";
-        }
-    };
-
-    @Override public void onSensorChanged(SensorEvent e) {
-        float a = e.values[0];
-        if (Float.isNaN(last)) { last = a; broadcast(a, "IDLE"); return; }
-        float d = a - last;
-        String dir = d < -0.25f ? "CLOSING" : (d > 0.25f ? "OPENING" : "STABLE");
-
-        // Closing: force the cover state at the chosen angle and KEEP it forced.
-        if (!forcedExternal && !forcedInner && d < -0.25f && last > closeAngle && a <= closeAngle) {
-            forceState(externalState, "External forced @ " + Math.round(a) + "°");
-            forcedExternal = true;
-        }
-
-        // Once fully/near-fully closed, Honor itself is now in the cover-screen region.
-        // Only then release our override.
-        if (forcedExternal && a <= 8f) {
-            resetState("External handoff complete @ " + Math.round(a) + "°");
-        }
-
-        // If user changes direction before closing, cancel the forced cover state.
-        if (forcedExternal && d > 1.0f && a > closeAngle + 5f) {
-            resetState("Closing cancelled");
-        }
-
-        // Opening: as soon as chosen threshold is crossed, explicitly force FLAT/inner.
-        if (!forcedExternal && !forcedInner && d > 0.25f && last < openAngle && a >= openAngle) {
-            forceState(1, "Inner forced @ " + Math.round(a) + "°");
-            forcedInner = true;
-        }
-
-        // Keep FLAT forced until essentially fully open, then release to normal policy.
-        if (forcedInner && a >= 178f) {
-            resetState("Inner handoff complete @ " + Math.round(a) + "°");
-        }
-
-        // If user reverses direction before finishing opening, cancel inner force.
-        if (forcedInner && d < -1.0f && a < openAngle - 5f) {
-            resetState("Opening cancelled");
-        }
-
-        last = a;
-        broadcast(a, dir);
-    }
-
-    private synchronized void forceState(int state, String action) {
-        lastAction = action;
-        runAsync("cmd device_state state " + state);
-        updateNotif(action);
-    }
-
-    private synchronized void resetState(String action) {
-        if (!forcedExternal && !forcedInner) return;
-        forcedExternal = false;
-        forcedInner = false;
-        lastAction = action;
-        runAsync("cmd device_state state reset");
-        updateNotif(action);
-    }
-
-    private void runAsync(String cmd) {
-        IDisplayToggleService s = shell;
-        if (s == null) { lastAction = "Shizuku not ready"; return; }
-        new Thread(() -> { try { s.runCommand(cmd); } catch (Throwable ignored) {} }).start();
-    }
-
-    private void broadcast(float angle, String dir) {
-        Intent i = new Intent(ACTION_STATUS);
-        i.setPackage(getPackageName());
-        i.putExtra("angle", angle);
-        i.putExtra("dir", dir);
-        i.putExtra("action", lastAction);
-        i.putExtra("forcedExternal", forcedExternal);
-        i.putExtra("forcedInner", forcedInner);
-        sendBroadcast(i);
-    }
-
-    private void createChannel() {
-        NotificationManager nm = getSystemService(NotificationManager.class);
-        nm.createNotificationChannel(new NotificationChannel(CH, "Magic V2 hinge controller", NotificationManager.IMPORTANCE_LOW));
-    }
-
-    private Notification notification(String txt) {
-        Intent open = new Intent(this, MainActivity.class);
-        PendingIntent pi = PendingIntent.getActivity(this, 1, open, PendingIntent.FLAG_IMMUTABLE|PendingIntent.FLAG_UPDATE_CURRENT);
-        return new NotificationCompat.Builder(this, CH).setSmallIcon(android.R.drawable.ic_menu_rotate).setContentTitle("Magic V2 angle controller V2").setContentText(txt).setContentIntent(pi).setOngoing(true).build();
-    }
-    private void updateNotif(String txt) { getSystemService(NotificationManager.class).notify(7701, notification(txt)); }
-
-    @Override public void onDestroy() {
-        if (sm != null) sm.unregisterListener(this);
-        if (shell != null) { try { shell.runCommand("cmd device_state state reset"); } catch (Throwable ignored) {} }
-        try { if (args != null) Shizuku.unbindUserService(args, conn, true); } catch (Throwable ignored) {}
-        super.onDestroy();
-    }
-
-    @Override public void onAccuracyChanged(Sensor s, int a) {}
-    @Override public IBinder onBind(Intent i) { return null; }
-}
-''')
-
 activity = root / 'app/src/main/java/com/displaytoggle/extreme/MainActivity.java'
 activity.write_text(r'''package com.displaytoggle.extreme;
 
 import android.app.Activity;
 import android.content.*;
 import android.content.pm.PackageManager;
-import android.hardware.*;
 import android.os.Bundle;
+import android.os.IBinder;
 import android.widget.*;
 import rikka.shizuku.Shizuku;
 
-public class MainActivity extends Activity implements SensorEventListener {
-    private EditText closeEt, openEt;
-    private Spinner stateSp;
+public class MainActivity extends Activity {
     private TextView status;
-    private SensorManager sm;
-    private Sensor hinge;
-
-    private final BroadcastReceiver receiver = new BroadcastReceiver() {
-        @Override public void onReceive(Context c, Intent i) {
-            float a = i.getFloatExtra("angle", Float.NaN);
-            String d = i.getStringExtra("dir");
-            String act = i.getStringExtra("action");
-            boolean fe = i.getBooleanExtra("forcedExternal", false);
-            boolean fi = i.getBooleanExtra("forcedInner", false);
-            status.setText("Controller ON\nAngle: " + (Float.isNaN(a)?"?":String.format(java.util.Locale.US,"%.1f°",a)) + "\nDirection: " + d + "\nForced: " + (fe?"EXTERNAL":(fi?"INNER":"none")) + "\nLast action: " + act);
-        }
-    };
+    private Button both, inner, outer, snap, reset, copy;
+    private String report = "";
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
-        LinearLayout box = new LinearLayout(this); box.setOrientation(LinearLayout.VERTICAL); box.setPadding(24,24,24,24);
-        TextView title = new TextView(this); title.setText("MAGIC V2 — ANGLE CONTROLLER V2"); title.setTextSize(21f);
-        TextView help = new TextView(this); help.setText("V2 keeps the requested display state forced until the hinge finishes the movement. There is NO timed reset anymore.");
-        closeEt = field("60"); openEt = field("165");
-        stateSp = new Spinner(this); stateSp.setAdapter(new ArrayAdapter<String>(this, android.R.layout.simple_spinner_dropdown_item, new String[]{"STATE_CLOSED (4)","STATE_REAR (8)"}));
-        Button start = new Button(this); start.setText("START CONTROLLER");
-        Button stop = new Button(this); stop.setText("STOP + RESET");
-        status = new TextView(this); status.setTextSize(15f);
-
-        box.addView(title); box.addView(help);
-        box.addView(label("Closing switch angle (°)")); box.addView(closeEt);
-        box.addView(label("Opening switch angle (°)")); box.addView(openEt);
-        box.addView(label("External state")); box.addView(stateSp);
-        box.addView(start); box.addView(stop); box.addView(status);
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(24,24,24,24);
+        TextView title = new TextView(this); title.setText("MAGIC V2 — DUAL SCREEN PROBE"); title.setTextSize(21f);
+        TextView info = new TextView(this); info.setText("Goal: keep INNER + OUTER physical panels active at the same time. No hinge-angle logic. FORCE BOTH only uses documented shell commands and state 14/4 combinations; no hidden binder calls or native SurfaceControl.");
+        both = btn("FORCE BOTH — SAFE RECIPES");
+        inner = btn("INNER ONLY");
+        outer = btn("OUTER ONLY");
+        snap = btn("SNAPSHOT");
+        reset = btn("RESET NORMAL");
+        copy = btn("COPY REPORT");
+        status = new TextView(this); status.setTextSize(12f); status.setTextIsSelectable(true); status.setText("App ready. Start Shizuku, then use FORCE BOTH.");
+        box.addView(title); box.addView(info); box.addView(both); box.addView(inner); box.addView(outer); box.addView(snap); box.addView(reset); box.addView(copy); box.addView(status);
         ScrollView sv = new ScrollView(this); sv.addView(box); setContentView(sv);
-
-        android.content.SharedPreferences p = getSharedPreferences("magicv2", MODE_PRIVATE);
-        closeEt.setText(String.valueOf(p.getFloat("closeAngle",60f)));
-        openEt.setText(String.valueOf(p.getFloat("openAngle",165f)));
-        stateSp.setSelection(p.getInt("externalState",4)==8?1:0);
-
-        start.setOnClickListener(v -> startController());
-        stop.setOnClickListener(v -> { stopService(new Intent(this,HingeControllerService.class)); status.setText("Controller stopped. Device state reset requested."); });
-
-        sm=(SensorManager)getSystemService(SENSOR_SERVICE); hinge=sm.getDefaultSensor(Sensor.TYPE_HINGE_ANGLE,true); if(hinge==null) hinge=sm.getDefaultSensor(Sensor.TYPE_HINGE_ANGLE);
+        both.setOnClickListener(v -> runProbe(3));
+        inner.setOnClickListener(v -> runProbe(1));
+        outer.setOnClickListener(v -> runProbe(2));
+        snap.setOnClickListener(v -> runProbe(0));
+        reset.setOnClickListener(v -> runProbe(4));
+        copy.setOnClickListener(v -> { ((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(android.content.ClipData.newPlainText("MagicV2 dual probe", report)); Toast.makeText(this,"Report copied",Toast.LENGTH_SHORT).show(); });
     }
 
-    private TextView label(String s){ TextView t=new TextView(this); t.setText(s); t.setTextSize(15f); return t; }
-    private EditText field(String s){ EditText e=new EditText(this); e.setInputType(android.text.InputType.TYPE_CLASS_NUMBER|android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL); e.setText(s); return e; }
+    private Button btn(String s){ Button b=new Button(this); b.setText(s); return b; }
 
-    private void startController(){
-        if(!Shizuku.pingBinder()){ status.setText("Shizuku is not running."); return; }
-        if(Shizuku.checkSelfPermission()!=PackageManager.PERMISSION_GRANTED){ Shizuku.requestPermission(95); status.setText("Grant Shizuku permission, then press START again."); return; }
-        try{
-            float ca=Float.parseFloat(closeEt.getText().toString()); float oa=Float.parseFloat(openEt.getText().toString());
-            if(ca<20||ca>140||oa<100||oa>179||oa<=ca){ status.setText("Invalid angles. Suggested first test: close 60°, open 165°."); return; }
-            int es=stateSp.getSelectedItemPosition()==1?8:4;
-            getSharedPreferences("magicv2",MODE_PRIVATE).edit().putFloat("closeAngle",ca).putFloat("openAngle",oa).putInt("externalState",es).apply();
-            stopService(new Intent(this,HingeControllerService.class));
-            Intent i=new Intent(this,HingeControllerService.class); if(android.os.Build.VERSION.SDK_INT>=26) startForegroundService(i); else startService(i);
-            status.setText("Starting controller V2…");
-        }catch(Throwable e){ status.setText("Settings error: "+e); }
+    private void runProbe(int mode) {
+        if (!Shizuku.pingBinder()) { status.setText("Shizuku is not running."); return; }
+        if (Shizuku.checkSelfPermission()!=PackageManager.PERMISSION_GRANTED) { Shizuku.requestPermission(97); status.setText("Grant Shizuku permission, then press the button again."); return; }
+        setButtons(false);
+        status.setText(mode==3 ? "Trying safe dual-screen recipes… Watch BOTH panels for the next few seconds." : "Running…");
+        Shizuku.UserServiceArgs args = new Shizuku.UserServiceArgs(new ComponentName(this, DisplayToggleService.class)).daemon(false).processNameSuffix("magicv2_dual_probe");
+        Shizuku.bindUserService(args, new ServiceConnection() {
+            @Override public void onServiceConnected(ComponentName n, IBinder binder) {
+                new Thread(() -> {
+                    String r;
+                    try { r = IDisplayToggleService.Stub.asInterface(binder).runDualProbe(mode); }
+                    catch (Throwable e) { r = "ERROR: " + e; }
+                    final String rr=r;
+                    runOnUiThread(() -> { report=rr; status.setText(rr); setButtons(true); });
+                }).start();
+            }
+            @Override public void onServiceDisconnected(ComponentName n) { runOnUiThread(() -> { status.append("\nService disconnected."); setButtons(true); }); }
+        });
     }
 
-    @Override protected void onResume(){ super.onResume(); registerReceiver(receiver,new IntentFilter(HingeControllerService.ACTION_STATUS), Context.RECEIVER_NOT_EXPORTED); if(hinge!=null) sm.registerListener(this,hinge,SensorManager.SENSOR_DELAY_NORMAL); }
-    @Override protected void onPause(){ super.onPause(); try{unregisterReceiver(receiver);}catch(Throwable ignored){} if(sm!=null)sm.unregisterListener(this); }
-    @Override public void onSensorChanged(SensorEvent e){ if(status.getText().toString().startsWith("Controller ON"))return; status.setText("Live hinge angle: "+String.format(java.util.Locale.US,"%.1f°",e.values[0])+"\nController not reporting yet."); }
-    @Override public void onAccuracyChanged(Sensor s,int a){}
+    private void setButtons(boolean e){ both.setEnabled(e); inner.setEnabled(e); outer.setEnabled(e); snap.setEnabled(e); reset.setEnabled(e); copy.setEnabled(e); }
 }
 ''')
