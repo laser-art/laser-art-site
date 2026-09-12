@@ -1,4 +1,4 @@
-name: Build Magic V2 Dual Screen Probe
+name: Build Magic V2 Honor Fold API Probe
 
 on:
   push:
@@ -16,18 +16,18 @@ jobs:
           java-version: '17'
       - name: Clone DisplayToggle Extreme
         run: git clone --depth 1 https://github.com/xe5700/DisplayToggleExtreme.git displaytoggle
-      - name: Apply Magic V2 dual screen probe patch
-        run: python tools/patch_magicv2_advanced_diag.py
+      - name: Apply Honor fold API probe patch
+        run: python tools/patch_magicv2_honor_api_probe.py
       - name: Install Gradle
         run: |
           wget -q https://services.gradle.org/distributions/gradle-8.7-bin.zip -O /tmp/gradle.zip
           unzip -q /tmp/gradle.zip -d /tmp
-      - name: Build Magic V2 dual screen probe APK
+      - name: Build Honor fold API probe APK
         working-directory: displaytoggle
         run: /tmp/gradle-8.7/bin/gradle assembleDebug --stacktrace
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: MagicV2-DualScreen-Probe
+          name: MagicV2-Honor-Fold-API-Probe
           path: displaytoggle/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
