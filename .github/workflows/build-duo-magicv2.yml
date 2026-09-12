@@ -1,4 +1,4 @@
-name: Build Duo Open Magic V2
+name: Build Duo Open Magic V2 Diagnostic
 
 on:
   push:
@@ -16,16 +16,16 @@ jobs:
           java-version: '17'
       - name: Clone Duo Open
         run: git clone --depth 1 https://github.com/marcoazeem/duo-open.git duo-open
-      - name: Apply Magic V2 v3 patch
-        run: python tools/patch_magicv2_v3.py
-      - name: Build debug APK
+      - name: Apply full Magic V2 diagnostic patch
+        run: python tools/patch_magicv2_diag.py
+      - name: Build diagnostic APK
         working-directory: duo-open
         run: |
           chmod +x gradlew
           ./gradlew assembleDebug --stacktrace
-      - name: Upload APK
+      - name: Upload diagnostic APK
         uses: actions/upload-artifact@v4
         with:
-          name: DuoOpen-MagicV2-v3-debug
+          name: DuoOpen-MagicV2-Diagnostic
           path: duo-open/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
