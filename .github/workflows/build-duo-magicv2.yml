@@ -1,4 +1,4 @@
-name: Build Magic V2 Honor FSM Reflection Probe
+name: Build Magic V2 Honor Coordination Tester
 
 on:
   push:
@@ -16,18 +16,18 @@ jobs:
           java-version: '17'
       - name: Clone DisplayToggle Extreme
         run: git clone --depth 1 https://github.com/xe5700/DisplayToggleExtreme.git displaytoggle
-      - name: Apply Honor FSM reflection probe patch
-        run: python tools/patch_magicv2_honor_reflect_probe.py
+      - name: Apply Honor coordination tester patch
+        run: python tools/patch_magicv2_honor_coordination_test.py
       - name: Install Gradle
         run: |
           wget -q https://services.gradle.org/distributions/gradle-8.7-bin.zip -O /tmp/gradle.zip
           unzip -q /tmp/gradle.zip -d /tmp
-      - name: Build Honor FSM reflection probe APK
+      - name: Build Honor coordination tester APK
         working-directory: displaytoggle
         run: /tmp/gradle-8.7/bin/gradle assembleDebug --stacktrace
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: MagicV2-Honor-FSM-Reflection-Probe
+          name: MagicV2-Honor-Coordination-Tester
           path: displaytoggle/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
