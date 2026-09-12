@@ -2,22 +2,8 @@ from pathlib import Path
 
 root = Path('displaytoggle')
 
-# Give this tester a fresh app id so old Shizuku user-service processes from previous
-# diagnostic APKs cannot collide with it.
-gradle = root / 'app/build.gradle.kts'
-gs = gradle.read_text()
-gs = gs.replace('applicationId = "com.displaytoggle.extreme"', 'applicationId = "com.magicv2.stateswitchtester"')
-gradle.write_text(gs)
-
-# The Java classes remain in com.displaytoggle.extreme. Because applicationId is now
-# different, relative manifest names like .MainActivity would resolve to the wrong
-# package and crash immediately on launch. Make every component name explicit.
-manifest = root / 'app/src/main/AndroidManifest.xml'
-ms = manifest.read_text()
-ms = ms.replace('android:name=".MainActivity"', 'android:name="com.displaytoggle.extreme.MainActivity"')
-ms = ms.replace('android:name=".EditActivity"', 'android:name="com.displaytoggle.extreme.EditActivity"')
-ms = ms.replace('android:name=".TaskerPluginReceiver"', 'android:name="com.displaytoggle.extreme.TaskerPluginReceiver"')
-manifest.write_text(ms)
+# Keep the original DisplayToggle Extreme package/application id because this package
+# is already proven to launch correctly on the Magic V2.
 
 (root / 'app/src/main/aidl/com/displaytoggle/extreme/IDisplayToggleService.aidl').write_text('''package com.displaytoggle.extreme;
 interface IDisplayToggleService {
@@ -114,18 +100,15 @@ import rikka.shizuku.Shizuku;
 public class MainActivity extends Activity {
     private TextView text;
     private Button test4, test8, copy;
-    private Shizuku.UserServiceArgs args;
     private String report = "";
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
-        args = new Shizuku.UserServiceArgs(new ComponentName(this, DisplayToggleService.class))
-                .daemon(false).processNameSuffix("magicv2_state_isolated");
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(24,24,24,24);
         TextView title = new TextView(this);
-        title.setText("MAGIC V2 - ISOLATED STATE TESTER");
+        title.setText("MAGIC V2 - STATE TESTER");
         title.setTextSize(20f);
         TextView info = new TextView(this);
         info.setText("Phone must stay FULLY OPEN. Nothing runs automatically. Test state 4 first, then state 8 separately. Each test resets automatically after 4 seconds.\n");
@@ -136,35 +119,49 @@ public class MainActivity extends Activity {
         box.addView(title); box.addView(info); box.addView(test4); box.addView(test8); box.addView(copy); box.addView(text);
         ScrollView sv = new ScrollView(this); sv.addView(box); setContentView(sv);
 
+        text.setText("App launched OK. Shizuku will only be contacted after you press a test button.");
         test4.setOnClickListener(v -> startTest(4));
         test8.setOnClickListener(v -> startTest(8));
         copy.setOnClickListener(v -> {
             ClipboardManager cm=(ClipboardManager)getSystemService(Context.CLIPBOARD_SERVICE);
-            cm.setPrimaryClip(ClipData.newPlainText("MagicV2 isolated state test", report));
+            cm.setPrimaryClip(ClipData.newPlainText("MagicV2 state test", report));
             android.widget.Toast.makeText(this,"Report copied",android.widget.Toast.LENGTH_SHORT).show();
         });
-        if (Shizuku.pingBinder() && Shizuku.checkSelfPermission()!=PackageManager.PERMISSION_GRANTED) Shizuku.requestPermission(92);
-        text.setText("App launched OK.\nShizuku=" + (Shizuku.pingBinder()?"RUNNING":"STOPPED") + " permission=" + (Shizuku.checkSelfPermission()==0?"GRANTED":"NO"));
     }
 
     private void startTest(int state) {
-        if (!Shizuku.pingBinder() || Shizuku.checkSelfPermission()!=0) {
-            text.setText("Shizuku permission required. Open Shizuku and grant this NEW app permission."); return;
-        }
-        test4.setEnabled(false); test8.setEnabled(false);
-        text.setText("Testing state " + state + "... keep phone fully open and look at the cover screen.\n");
-        Shizuku.bindUserService(args, new ServiceConnection() {
-            @Override public void onServiceConnected(ComponentName n, IBinder b) {
-                new Thread(() -> {
-                    String r;
-                    try { r=IDisplayToggleService.Stub.asInterface(b).runSingleStateTest(state); }
-                    catch(Exception e){ r="ERROR: "+e; }
-                    final String fr=r;
-                    runOnUiThread(() -> { report=fr; text.setText(fr); test4.setEnabled(true); test8.setEnabled(true); });
-                }).start();
+        try {
+            if (!Shizuku.pingBinder()) {
+                text.setText("Shizuku is not running.");
+                return;
             }
-            @Override public void onServiceDisconnected(ComponentName n) {}
-        });
+            if (Shizuku.checkSelfPermission()!=PackageManager.PERMISSION_GRANTED) {
+                text.setText("Grant Shizuku permission, then press the same test button again.");
+                Shizuku.requestPermission(93);
+                return;
+            }
+            Shizuku.UserServiceArgs args = new Shizuku.UserServiceArgs(new ComponentName(this, DisplayToggleService.class))
+                    .daemon(false).processNameSuffix("magicv2_state_safe");
+            test4.setEnabled(false); test8.setEnabled(false);
+            text.setText("Testing state " + state + "... keep phone fully open and look at the cover screen.\n");
+            Shizuku.bindUserService(args, new ServiceConnection() {
+                @Override public void onServiceConnected(ComponentName n, IBinder b) {
+                    new Thread(() -> {
+                        String r;
+                        try { r=IDisplayToggleService.Stub.asInterface(b).runSingleStateTest(state); }
+                        catch(Exception e){ r="ERROR: "+e; }
+                        final String fr=r;
+                        runOnUiThread(() -> { report=fr; text.setText(fr); test4.setEnabled(true); test8.setEnabled(true); });
+                    }).start();
+                }
+                @Override public void onServiceDisconnected(ComponentName n) {
+                    runOnUiThread(() -> { text.append("\nShizuku service disconnected."); test4.setEnabled(true); test8.setEnabled(true); });
+                }
+            });
+        } catch (Throwable e) {
+            text.setText("START ERROR: " + e);
+            test4.setEnabled(true); test8.setEnabled(true);
+        }
     }
 }
 ''')
