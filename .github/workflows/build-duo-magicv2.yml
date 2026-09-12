@@ -1,4 +1,4 @@
-name: Build Magic V2 Honor Fold Permission Probe
+name: Build Magic V2 Honor Privileged Bridge Probe
 
 on:
   push:
@@ -16,18 +16,18 @@ jobs:
           java-version: '17'
       - name: Clone DisplayToggle Extreme
         run: git clone --depth 1 https://github.com/xe5700/DisplayToggleExtreme.git displaytoggle
-      - name: Apply Honor fold permission probe patch
-        run: python tools/patch_magicv2_fold_permission_probe.py
+      - name: Apply privileged bridge probe patch
+        run: python tools/patch_magicv2_privileged_bridge_probe.py
       - name: Install Gradle
         run: |
           wget -q https://services.gradle.org/distributions/gradle-8.7-bin.zip -O /tmp/gradle.zip
           unzip -q /tmp/gradle.zip -d /tmp
-      - name: Build Honor fold permission probe APK
+      - name: Build privileged bridge probe APK
         working-directory: displaytoggle
         run: /tmp/gradle-8.7/bin/gradle assembleDebug --stacktrace
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: MagicV2-Honor-Fold-Permission-Probe
+          name: MagicV2-Honor-Privileged-Bridge-Probe
           path: displaytoggle/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
