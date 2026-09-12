@@ -9,19 +9,14 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout holder repo
-        uses: actions/checkout@v4
-
-      - name: Set up Java 17
-        uses: actions/setup-java@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-
       - name: Clone Duo Open
         run: git clone --depth 1 https://github.com/marcoazeem/duo-open.git duo-open
-
-      - name: Patch for HONOR Magic V2
+      - name: Patch for HONOR Magic V2 v3
         shell: python
         run: |
           from pathlib import Path
@@ -34,55 +29,66 @@ jobs:
           service = Path('duo-open/app/src/main/java/com/duoopen/overlay/FoldOverlayService.kt')
           s = service.read_text()
 
-          # Magic V2: show cover overlay immediately after panel swap.
           s = s.replace(
-              'show(bitmap, tilt, fadeIn = afterSwap, timed = timed)',
-              'show(bitmap, tilt, fadeIn = afterSwap && !timed, timed = timed)'
+              'private var timedResolve = false',
+              'private var timedResolve = false\n    private var handoffSnapshot: Bitmap? = null'
           )
 
-          # Magic V2: when the cover screen wakes around 43°, screenshot latency means
-          # the hinge may already be almost closed. Force a fully-frosted starting frame
-          # instead of deriving cover tilt from the now-small hinge angle.
+          s = s.replace(
+              'if (inner != innerPanel) {\n            innerPanel = inner\n            panelSwitched = true\n            if (phase != Phase.IDLE) removeOverlay() // old panel\'s snapshot is meaningless now\n        }',
+              '''if (inner != innerPanel) {
+            innerPanel = inner
+            panelSwitched = true
+            if (phase != Phase.IDLE) removeOverlay()
+            val cached = handoffSnapshot
+            if (cached != null && !cached.isRecycled) {
+                val copy = cached.copy(Bitmap.Config.ARGB_8888, false)
+                if (copy != null) {
+                    val peak = DuoShader.MAX_TILT * DuoSettings.config.value.intensity.coerceAtMost(1f)
+                    show(copy, peak, fadeIn = false, timed = !innerPanel)
+                    if (innerPanel) follower?.setTarget(currentTilt())
+                    panelSwitched = false
+                    restArmed = false
+                    return
+                }
+            }
+        }'''
+          )
+
           s = s.replace(
               'val tilt = startTilt ?: currentTilt()',
-              'val tilt = if (afterSwap && !innerPanel) {\n            DuoShader.MAX_TILT * DuoSettings.config.value.intensity.coerceAtMost(1f)\n        } else {\n            startTilt ?: currentTilt()\n        }'
+              'val tilt = if (afterSwap) DuoShader.MAX_TILT * DuoSettings.config.value.intensity.coerceAtMost(1f) else (startTilt ?: currentTilt())'
           )
 
-          # Do not skip the cover animation just because the hinge reached <10° while
-          # waiting for the fresh cover-screen screenshot. Keep the skip guard only for
-          # the inner panel on very late opens.
           s = s.replace(
-              'val nearlyDone = afterSwap && startTilt == null &&\n            if (innerPanel) angle > SKIP_INNER_ABOVE_HINGE else angle < SKIP_COVER_BELOW_HINGE',
-              'val nearlyDone = afterSwap && startTilt == null && innerPanel &&\n            angle > SKIP_INNER_ABOVE_HINGE'
+              '// Closing onto the cover: the hinge HAL goes quiet around 30°, so the',
+              '''handoffSnapshot?.recycle()
+        handoffSnapshot = runCatching { bitmap.copy(Bitmap.Config.ARGB_8888, false) }.getOrNull()
+
+        // Closing onto the cover: the hinge HAL goes quiet around 30°, so the'''
           )
 
-          # Always use the timed settle for the cover after a swap.
           s = s.replace(
-              'val timed = afterSwap && !innerPanel && startTilt == null',
-              'val timed = afterSwap && !innerPanel'
+              'show(bitmap, tilt, fadeIn = afterSwap, timed = timed)',
+              'show(bitmap, tilt, fadeIn = false, timed = timed)'
           )
 
-          # Hold the fully-frosted cover briefly, then resolve visibly.
-          s = s.replace(
-              'follower?.tauS = TIMED_RESOLVE_TAU_S\n            follower?.setTarget(0f)',
-              'follower?.tauS = TIMED_RESOLVE_TAU_S\n            handler.postDelayed({\n                if (overlay === view && timedResolve) {\n                    follower?.setTarget(0f)\n                }\n            }, COVER_RESOLVE_DELAY_MS)'
-          )
           s = s.replace(
               'private const val TIMED_RESOLVE_TAU_S = 0.07f',
-              'private const val TIMED_RESOLVE_TAU_S = 0.13f\n        private const val COVER_RESOLVE_DELAY_MS = 120L'
+              'private const val TIMED_RESOLVE_TAU_S = 0.14f'
           )
+          s = s.replace('private const val FADE_IN_MS = 140L', 'private const val FADE_IN_MS = 0L')
+          s = s.replace('private const val FADE_OUT_FLAT_MS = 120L', 'private const val FADE_OUT_FLAT_MS = 80L')
 
           service.write_text(s)
-
       - name: Build debug APK
         working-directory: duo-open
         run: |
           chmod +x gradlew
           ./gradlew assembleDebug --stacktrace
-
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: DuoOpen-MagicV2-v2-debug
+          name: DuoOpen-MagicV2-v3-debug
           path: duo-open/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
