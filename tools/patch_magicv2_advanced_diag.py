@@ -2,9 +2,7 @@ from pathlib import Path
 
 root = Path('displaytoggle')
 
-# Keep proven package/application id.
-
-# Manifest: foreground service permissions + controller service.
+# Keep the original proven package/application id.
 manifest = root / 'app/src/main/AndroidManifest.xml'
 ms = manifest.read_text()
 if 'android.permission.FOREGROUND_SERVICE' not in ms:
@@ -66,10 +64,8 @@ public class HingeControllerService extends Service implements SensorEventListen
     private float closeAngle = 60f;
     private float openAngle = 165f;
     private int externalState = 4;
-    private long maxHoldMs = 2500;
     private boolean forcedExternal = false;
     private boolean forcedInner = false;
-    private long forcedAt = 0L;
     private String lastAction = "Idle";
 
     @Override public void onCreate() {
@@ -80,7 +76,6 @@ public class HingeControllerService extends Service implements SensorEventListen
         closeAngle = p.getFloat("closeAngle", 60f);
         openAngle = p.getFloat("openAngle", 165f);
         externalState = p.getInt("externalState", 4);
-        maxHoldMs = p.getLong("holdMs", 2500L);
 
         sm = (SensorManager)getSystemService(SENSOR_SERVICE);
         hinge = sm.getDefaultSensor(Sensor.TYPE_HINGE_ANGLE, true);
@@ -89,7 +84,7 @@ public class HingeControllerService extends Service implements SensorEventListen
 
         try {
             args = new Shizuku.UserServiceArgs(new ComponentName(this, DisplayToggleService.class))
-                    .daemon(false).processNameSuffix("magicv2_angle_controller");
+                    .daemon(false).processNameSuffix("magicv2_angle_controller_v2");
             Shizuku.bindUserService(args, conn);
         } catch (Throwable e) {
             lastAction = "Shizuku bind error: " + e.getClass().getSimpleName();
@@ -114,21 +109,38 @@ public class HingeControllerService extends Service implements SensorEventListen
         if (Float.isNaN(last)) { last = a; broadcast(a, "IDLE"); return; }
         float d = a - last;
         String dir = d < -0.25f ? "CLOSING" : (d > 0.25f ? "OPENING" : "STABLE");
-        long now = SystemClock.elapsedRealtime();
 
+        // Closing: force the cover state at the chosen angle and KEEP it forced.
         if (!forcedExternal && !forcedInner && d < -0.25f && last > closeAngle && a <= closeAngle) {
-            forceState(externalState, "External @ " + Math.round(a) + "°");
-            forcedExternal = true; forcedAt = now;
-        } else if (!forcedExternal && !forcedInner && d > 0.25f && last < openAngle && a >= openAngle) {
-            forceState(1, "Inner @ " + Math.round(a) + "°");
-            forcedInner = true; forcedAt = now;
+            forceState(externalState, "External forced @ " + Math.round(a) + "°");
+            forcedExternal = true;
         }
 
-        if (forcedExternal) {
-            if (a <= 35f || d > 0.8f || now - forcedAt >= maxHoldMs) resetState("Reset external");
+        // Once fully/near-fully closed, Honor itself is now in the cover-screen region.
+        // Only then release our override.
+        if (forcedExternal && a <= 8f) {
+            resetState("External handoff complete @ " + Math.round(a) + "°");
         }
-        if (forcedInner) {
-            if (a >= 178f || d < -0.8f || now - forcedAt >= maxHoldMs) resetState("Reset inner");
+
+        // If user changes direction before closing, cancel the forced cover state.
+        if (forcedExternal && d > 1.0f && a > closeAngle + 5f) {
+            resetState("Closing cancelled");
+        }
+
+        // Opening: as soon as chosen threshold is crossed, explicitly force FLAT/inner.
+        if (!forcedExternal && !forcedInner && d > 0.25f && last < openAngle && a >= openAngle) {
+            forceState(1, "Inner forced @ " + Math.round(a) + "°");
+            forcedInner = true;
+        }
+
+        // Keep FLAT forced until essentially fully open, then release to normal policy.
+        if (forcedInner && a >= 178f) {
+            resetState("Inner handoff complete @ " + Math.round(a) + "°");
+        }
+
+        // If user reverses direction before finishing opening, cancel inner force.
+        if (forcedInner && d < -1.0f && a < openAngle - 5f) {
+            resetState("Opening cancelled");
         }
 
         last = a;
@@ -143,7 +155,8 @@ public class HingeControllerService extends Service implements SensorEventListen
 
     private synchronized void resetState(String action) {
         if (!forcedExternal && !forcedInner) return;
-        forcedExternal = false; forcedInner = false;
+        forcedExternal = false;
+        forcedInner = false;
         lastAction = action;
         runAsync("cmd device_state state reset");
         updateNotif(action);
@@ -161,6 +174,8 @@ public class HingeControllerService extends Service implements SensorEventListen
         i.putExtra("angle", angle);
         i.putExtra("dir", dir);
         i.putExtra("action", lastAction);
+        i.putExtra("forcedExternal", forcedExternal);
+        i.putExtra("forcedInner", forcedInner);
         sendBroadcast(i);
     }
 
@@ -172,7 +187,7 @@ public class HingeControllerService extends Service implements SensorEventListen
     private Notification notification(String txt) {
         Intent open = new Intent(this, MainActivity.class);
         PendingIntent pi = PendingIntent.getActivity(this, 1, open, PendingIntent.FLAG_IMMUTABLE|PendingIntent.FLAG_UPDATE_CURRENT);
-        return new NotificationCompat.Builder(this, CH).setSmallIcon(android.R.drawable.ic_menu_rotate).setContentTitle("Magic V2 angle controller").setContentText(txt).setContentIntent(pi).setOngoing(true).build();
+        return new NotificationCompat.Builder(this, CH).setSmallIcon(android.R.drawable.ic_menu_rotate).setContentTitle("Magic V2 angle controller V2").setContentText(txt).setContentIntent(pi).setOngoing(true).build();
     }
     private void updateNotif(String txt) { getSystemService(NotificationManager.class).notify(7701, notification(txt)); }
 
@@ -200,7 +215,7 @@ import android.widget.*;
 import rikka.shizuku.Shizuku;
 
 public class MainActivity extends Activity implements SensorEventListener {
-    private EditText closeEt, openEt, holdEt;
+    private EditText closeEt, openEt;
     private Spinner stateSp;
     private TextView status;
     private SensorManager sm;
@@ -211,39 +226,37 @@ public class MainActivity extends Activity implements SensorEventListener {
             float a = i.getFloatExtra("angle", Float.NaN);
             String d = i.getStringExtra("dir");
             String act = i.getStringExtra("action");
-            status.setText("Controller ON\nAngle: " + (Float.isNaN(a)?"?":String.format(java.util.Locale.US,"%.1f°",a)) + "\nDirection: " + d + "\nLast action: " + act);
+            boolean fe = i.getBooleanExtra("forcedExternal", false);
+            boolean fi = i.getBooleanExtra("forcedInner", false);
+            status.setText("Controller ON\nAngle: " + (Float.isNaN(a)?"?":String.format(java.util.Locale.US,"%.1f°",a)) + "\nDirection: " + d + "\nForced: " + (fe?"EXTERNAL":(fi?"INNER":"none")) + "\nLast action: " + act);
         }
     };
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
         LinearLayout box = new LinearLayout(this); box.setOrientation(LinearLayout.VERTICAL); box.setPadding(24,24,24,24);
-        TextView title = new TextView(this); title.setText("MAGIC V2 — ANGLE CONTROLLER"); title.setTextSize(21f);
-        TextView help = new TextView(this); help.setText("Switch screens before Honor's native thresholds. Defaults: external at 60°, internal at 165°. Start Shizuku first.");
-        closeEt = field("60"); openEt = field("165"); holdEt = field("2500");
+        TextView title = new TextView(this); title.setText("MAGIC V2 — ANGLE CONTROLLER V2"); title.setTextSize(21f);
+        TextView help = new TextView(this); help.setText("V2 keeps the requested display state forced until the hinge finishes the movement. There is NO timed reset anymore.");
+        closeEt = field("60"); openEt = field("165");
         stateSp = new Spinner(this); stateSp.setAdapter(new ArrayAdapter<String>(this, android.R.layout.simple_spinner_dropdown_item, new String[]{"STATE_CLOSED (4)","STATE_REAR (8)"}));
         Button start = new Button(this); start.setText("START CONTROLLER");
         Button stop = new Button(this); stop.setText("STOP + RESET");
-        Button testExt = new Button(this); testExt.setText("TEST EXTERNAL NOW");
-        Button testIn = new Button(this); testIn.setText("TEST INTERNAL NOW");
         status = new TextView(this); status.setTextSize(15f);
 
         box.addView(title); box.addView(help);
         box.addView(label("Closing switch angle (°)")); box.addView(closeEt);
         box.addView(label("Opening switch angle (°)")); box.addView(openEt);
-        box.addView(label("Maximum forced-state hold (ms)")); box.addView(holdEt);
         box.addView(label("External state")); box.addView(stateSp);
-        box.addView(start); box.addView(stop); box.addView(testExt); box.addView(testIn); box.addView(status);
+        box.addView(start); box.addView(stop); box.addView(status);
         ScrollView sv = new ScrollView(this); sv.addView(box); setContentView(sv);
 
         android.content.SharedPreferences p = getSharedPreferences("magicv2", MODE_PRIVATE);
-        closeEt.setText(String.valueOf(p.getFloat("closeAngle",60f))); openEt.setText(String.valueOf(p.getFloat("openAngle",165f))); holdEt.setText(String.valueOf(p.getLong("holdMs",2500)));
+        closeEt.setText(String.valueOf(p.getFloat("closeAngle",60f)));
+        openEt.setText(String.valueOf(p.getFloat("openAngle",165f)));
         stateSp.setSelection(p.getInt("externalState",4)==8?1:0);
 
         start.setOnClickListener(v -> startController());
         stop.setOnClickListener(v -> { stopService(new Intent(this,HingeControllerService.class)); status.setText("Controller stopped. Device state reset requested."); });
-        testExt.setOnClickListener(v -> oneShot(stateSp.getSelectedItemPosition()==1?8:4));
-        testIn.setOnClickListener(v -> oneShot(1));
 
         sm=(SensorManager)getSystemService(SENSOR_SERVICE); hinge=sm.getDefaultSensor(Sensor.TYPE_HINGE_ANGLE,true); if(hinge==null) hinge=sm.getDefaultSensor(Sensor.TYPE_HINGE_ANGLE);
     }
@@ -255,19 +268,14 @@ public class MainActivity extends Activity implements SensorEventListener {
         if(!Shizuku.pingBinder()){ status.setText("Shizuku is not running."); return; }
         if(Shizuku.checkSelfPermission()!=PackageManager.PERMISSION_GRANTED){ Shizuku.requestPermission(95); status.setText("Grant Shizuku permission, then press START again."); return; }
         try{
-            float ca=Float.parseFloat(closeEt.getText().toString()); float oa=Float.parseFloat(openEt.getText().toString()); long hm=Long.parseLong(holdEt.getText().toString());
-            if(ca<40||ca>120||oa<130||oa>179||oa<=ca){ status.setText("Invalid angles. Suggested: close 50–80°, open 155–175°."); return; }
+            float ca=Float.parseFloat(closeEt.getText().toString()); float oa=Float.parseFloat(openEt.getText().toString());
+            if(ca<20||ca>140||oa<100||oa>179||oa<=ca){ status.setText("Invalid angles. Suggested first test: close 60°, open 165°."); return; }
             int es=stateSp.getSelectedItemPosition()==1?8:4;
-            getSharedPreferences("magicv2",MODE_PRIVATE).edit().putFloat("closeAngle",ca).putFloat("openAngle",oa).putLong("holdMs",hm).putInt("externalState",es).apply();
+            getSharedPreferences("magicv2",MODE_PRIVATE).edit().putFloat("closeAngle",ca).putFloat("openAngle",oa).putInt("externalState",es).apply();
+            stopService(new Intent(this,HingeControllerService.class));
             Intent i=new Intent(this,HingeControllerService.class); if(android.os.Build.VERSION.SDK_INT>=26) startForegroundService(i); else startService(i);
-            status.setText("Starting controller…");
+            status.setText("Starting controller V2…");
         }catch(Throwable e){ status.setText("Settings error: "+e); }
-    }
-
-    private void oneShot(int state){
-        if(!Shizuku.pingBinder()||Shizuku.checkSelfPermission()!=PackageManager.PERMISSION_GRANTED){ status.setText("Shizuku permission required."); return; }
-        Shizuku.UserServiceArgs args=new Shizuku.UserServiceArgs(new ComponentName(this,DisplayToggleService.class)).daemon(false).processNameSuffix("magicv2_manual");
-        Shizuku.bindUserService(args,new ServiceConnection(){ public void onServiceConnected(ComponentName n,android.os.IBinder b){ IDisplayToggleService s=IDisplayToggleService.Stub.asInterface(b); new Thread(()->{try{s.runCommand("cmd device_state state "+state); Thread.sleep(1800); s.runCommand("cmd device_state state reset");}catch(Throwable ignored){} runOnUiThread(()->status.setText("Manual state "+state+" test complete + reset."));}).start(); } public void onServiceDisconnected(ComponentName n){} });
     }
 
     @Override protected void onResume(){ super.onResume(); registerReceiver(receiver,new IntentFilter(HingeControllerService.ACTION_STATUS), Context.RECEIVER_NOT_EXPORTED); if(hinge!=null) sm.registerListener(this,hinge,SensorManager.SENSOR_DELAY_NORMAL); }
