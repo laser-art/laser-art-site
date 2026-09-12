@@ -5,7 +5,7 @@ root = Path('displaytoggle')
 (root / 'app/src/main/aidl/com/displaytoggle/extreme/IDisplayToggleService.aidl').write_text('''package com.displaytoggle.extreme;
 interface IDisplayToggleService {
     int toggleDisplays(int mode, in int[] whitelistDisplayIds);
-    String runDualScreenTest();
+    String runShellOnlyTest();
 }
 ''')
 
@@ -13,86 +13,47 @@ svc = root / 'app/src/main/java/com/displaytoggle/extreme/DisplayToggleService.j
 s = svc.read_text()
 marker = '    @Override\n    public int toggleDisplays(int mode, int[] whitelistDisplayIds) {'
 method = r'''    @Override
-    public String runDualScreenTest() {
-        final long INNER_PHYS = 4630946846403687043L;
-        final long OUTER_PHYS = 4630946324137792644L;
+    public String runShellOnlyTest() {
         StringBuilder out = new StringBuilder();
-        out.append("MAGIC V2 SAFE DUAL-SCREEN TEST\n\n");
-        out.append("Known physical panels:\n");
-        out.append("INNER = ").append(INNER_PHYS).append(" port 131 / HWC 0\n");
-        out.append("OUTER = ").append(OUTER_PHYS).append(" port 132 / HWC 3\n\n");
+        out.append("MAGIC V2 SHELL-ONLY DISPLAY TEST\n\n");
+        out.append("INNER physical: 4630946846403687043 / port 131 / HWC 0\n");
+        out.append("OUTER physical: 4630946324137792644 / port 132 / HWC 3\n\n");
 
-        String before = runShell("dumpsys display | grep -E 'mCurrentLayout=|DisplayDeviceInfo|state (ON|OFF)|mDisplayId=|mDeviceState=' | head -n 80");
-        out.append("===== BEFORE =====\n").append(before).append('\n');
-
-        String current = runShell("cmd display get-displays");
+        String current = runShell("cmd display get-displays 2>&1");
         boolean open = current.contains("real 2156 x 2344");
-        boolean closed = current.contains("real 1060 x 2376");
-        out.append("Detected logical screen: ").append(open ? "OPEN/INNER" : (closed ? "CLOSED/OUTER" : "UNKNOWN")).append("\n\n");
-
+        out.append("CURRENT LOGICAL DISPLAY:\n").append(current).append("\n");
+        out.append("Detected state: ").append(open ? "OPEN / INNER ACTIVE" : "NOT FULLY OPEN").append("\n\n");
         if (!open) {
-            out.append("STOP: Open the phone fully before running this test.\n");
-            out.append("This protects the currently visible cover display from being touched.\n");
+            out.append("STOP: open the phone fully and run again.\n");
             return out.toString();
         }
 
-        out.append("===== TEST 1: cmd display enable-display 1 =====\n");
+        out.append("===== BEFORE =====\n");
+        out.append(runShell("dumpsys display 2>&1 | grep -E 'mCurrentLayout=|mDeviceState=|mDisplayId=|mState=|mCommittedState=|DisplayDeviceInfo' | head -n 120"));
+
+        out.append("\n===== COMMAND: enable-display 1 =====\n");
         out.append(runShell("cmd display enable-display 1 2>&1"));
-        sleepMs(1800);
-        String afterCmd = runShell("dumpsys display | grep -E 'DisplayDeviceInfo|mDisplayId=|mState=|mCommittedState=|mCurrentLayout=' | head -n 100");
-        out.append(afterCmd).append('\n');
-        boolean cmdSuccess = afterCmd.contains("mDisplayId=1") && afterCmd.contains("mState=ON");
-        out.append("TEST1_RESULT=").append(cmdSuccess ? "POSSIBLE_SUCCESS" : "NO_CONFIRMED_ON").append("\n\n");
+        sleepMs(2500);
 
-        if (!cmdSuccess) {
-            out.append("===== TEST 2: direct SurfaceControl power ON outer physical panel =====\n");
-            out.append(setPhysicalPower(OUTER_PHYS, 2));
-            sleepMs(1800);
-            String sf = runShell("dumpsys SurfaceFlinger | grep -E 'Display 4630946324137792644|active\\)|inactive\\)|pacesetterDisplayId' | head -n 40");
-            out.append(sf).append('\n');
-            out.append("TEST2 sent physical power mode ON to OUTER.\n\n");
-        }
+        out.append("\n===== AFTER ENABLE =====\n");
+        String after = runShell("dumpsys display 2>&1 | grep -E 'mCurrentLayout=|mDeviceState=|mDisplayId=|mState=|mCommittedState=|DisplayDeviceInfo' | head -n 140");
+        out.append(after);
 
-        out.append("Holding test state for 5 seconds so you can look at the cover screen...\n");
+        out.append("\n===== SURFACEFLINGER AFTER ENABLE =====\n");
+        out.append(runShell("dumpsys SurfaceFlinger 2>&1 | grep -E 'Display 4630946846403687043|Display 4630946324137792644|active\\)|inactive\\)|pacesetterDisplayId' | head -n 80"));
+
+        out.append("\nHolding 5 seconds. Look at the COVER screen now.\n");
         sleepMs(5000);
 
-        out.append("\n===== RESTORE =====\n");
-        out.append(runShell("cmd display power-reset 1 2>&1"));
-        out.append(setPhysicalPower(OUTER_PHYS, 0));
+        out.append("\n===== RESTORE: disable-display 1 =====\n");
+        out.append(runShell("cmd display disable-display 1 2>&1"));
         sleepMs(1000);
-        out.append(runShell("dumpsys display | grep -E 'mCurrentLayout=|DisplayDeviceInfo|mDisplayId=|mState=|mCommittedState=' | head -n 100"));
+        out.append(runShell("cmd display power-reset 1 2>&1"));
+        sleepMs(700);
 
-        out.append("\n===== HONOR FOLD SERVICE (READ ONLY) =====\n");
-        out.append(runShell("dumpsys fold_screen 2>&1 | head -n 220"));
-        out.append("\n===== FOLD SETTINGS =====\n");
-        out.append(runShell("settings list global | grep -E 'hn_fold|FoldScreen'"));
+        out.append("\n===== FINAL =====\n");
+        out.append(runShell("dumpsys display 2>&1 | grep -E 'mCurrentLayout=|mDeviceState=|mDisplayId=|mState=|mCommittedState=|DisplayDeviceInfo' | head -n 120"));
         return out.toString();
-    }
-
-    private String setPhysicalPower(long physicalId, int mode) {
-        StringBuilder sb = new StringBuilder();
-        try {
-            Class<?> classLoaderFactoryClass = Class.forName("com.android.internal.os.ClassLoaderFactory");
-            java.lang.reflect.Method createClassLoader = classLoaderFactoryClass.getDeclaredMethod(
-                    "createClassLoader", String.class, String.class, String.class,
-                    ClassLoader.class, int.class, boolean.class, String.class);
-            ClassLoader cl = (ClassLoader) createClassLoader.invoke(null,
-                    "/system/framework/services.jar", null, null,
-                    ClassLoader.getSystemClassLoader(), 0, true, null);
-            Class<?> displayControlClass = cl.loadClass("com.android.server.display.DisplayControl");
-            java.lang.reflect.Method loadLib = Runtime.class.getDeclaredMethod("loadLibrary0", Class.class, String.class);
-            loadLib.setAccessible(true);
-            try { loadLib.invoke(Runtime.getRuntime(), displayControlClass, "android_servers"); } catch (Throwable ignored) {}
-            java.lang.reflect.Method getToken = displayControlClass.getMethod("getPhysicalDisplayToken", long.class);
-            android.os.IBinder token = (android.os.IBinder) getToken.invoke(null, physicalId);
-            if (token == null) return "Physical token is NULL for " + physicalId + "\n";
-            Class<?> sc = Class.forName("android.view.SurfaceControl");
-            java.lang.reflect.Method set = sc.getMethod("setDisplayPowerMode", android.os.IBinder.class, int.class);
-            set.invoke(null, token, mode);
-            return "SurfaceControl setDisplayPowerMode(" + physicalId + ", " + mode + ") OK\n";
-        } catch (Throwable e) {
-            return "SurfaceControl ERROR: " + e + "\n";
-        }
     }
 
     private void sleepMs(long ms) {
@@ -152,17 +113,17 @@ public class MainActivity extends Activity {
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
         args = new Shizuku.UserServiceArgs(new ComponentName(this, DisplayToggleService.class))
-                .daemon(false).processNameSuffix("magicv2_dual_test");
+                .daemon(false).processNameSuffix("magicv2_shell_test");
 
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(24,24,24,24);
         TextView title = new TextView(this);
-        title.setText("MAGIC V2 - DUAL SCREEN TEST");
+        title.setText("MAGIC V2 - SHELL DISPLAY TEST");
         title.setTextSize(20f);
         TextView info = new TextView(this);
-        info.setText("IMPORTANT: open the phone fully before the test.\nThe app will try to wake ONLY the inactive cover panel for 5 seconds, then restore the normal state automatically.\n");
-        run = new Button(this); run.setText("RUN SAFE TEST CHAIN");
+        info.setText("Open the phone FULLY before running.\nThis version uses only Android's cmd display commands. No native SurfaceControl calls.\nDuring the test, watch the cover screen for about 8 seconds.\n");
+        run = new Button(this); run.setText("RUN SHELL-ONLY TEST");
         copy = new Button(this); copy.setText("COPY REPORT");
         text = new TextView(this); text.setTextSize(12f); text.setTextIsSelectable(true);
         box.addView(title); box.addView(info); box.addView(run); box.addView(copy); box.addView(text);
@@ -171,10 +132,11 @@ public class MainActivity extends Activity {
         run.setOnClickListener(v -> startTest());
         copy.setOnClickListener(v -> {
             ClipboardManager cm=(ClipboardManager)getSystemService(Context.CLIPBOARD_SERVICE);
-            cm.setPrimaryClip(ClipData.newPlainText("MagicV2 dual display report", report));
+            cm.setPrimaryClip(ClipData.newPlainText("MagicV2 shell display report", report));
             android.widget.Toast.makeText(this,"Report copied",android.widget.Toast.LENGTH_SHORT).show();
         });
-        if (Shizuku.pingBinder() && Shizuku.checkSelfPermission()!=PackageManager.PERMISSION_GRANTED) Shizuku.requestPermission(88);
+
+        if (Shizuku.pingBinder() && Shizuku.checkSelfPermission()!=PackageManager.PERMISSION_GRANTED) Shizuku.requestPermission(89);
         text.setText("Shizuku=" + (Shizuku.pingBinder()?"RUNNING":"STOPPED") + " permission=" + (Shizuku.checkSelfPermission()==0?"GRANTED":"NO"));
     }
 
@@ -183,12 +145,12 @@ public class MainActivity extends Activity {
             text.setText("Shizuku permission required"); return;
         }
         run.setEnabled(false);
-        text.setText("Testing... Keep the phone FULLY OPEN. Watch the cover screen during the next 10 seconds.\n");
+        text.setText("Running shell-only test... keep phone fully open and watch cover screen.\n");
         Shizuku.bindUserService(args, new ServiceConnection() {
             @Override public void onServiceConnected(ComponentName n, IBinder b) {
                 new Thread(() -> {
                     String r;
-                    try { r=IDisplayToggleService.Stub.asInterface(b).runDualScreenTest(); }
+                    try { r=IDisplayToggleService.Stub.asInterface(b).runShellOnlyTest(); }
                     catch(Exception e){ r="ERROR: "+e; }
                     final String fr=r;
                     runOnUiThread(() -> { report=fr; text.setText(fr); run.setEnabled(true); });
