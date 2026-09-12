@@ -1,4 +1,4 @@
-name: Build Duo Open Magic V2 Diagnostic
+name: Build Duo Open Magic V2 Asymmetric
 
 on:
   push:
@@ -16,16 +16,43 @@ jobs:
           java-version: '17'
       - name: Clone Duo Open
         run: git clone --depth 1 https://github.com/marcoazeem/duo-open.git duo-open
-      - name: Apply full Magic V2 diagnostic patch
-        run: python tools/patch_magicv2_diag.py
-      - name: Build diagnostic APK
+      - name: Patch Magic V2 behavior
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('duo-open/app/src/main/java/com/duoopen/overlay/FoldOverlayService.kt')
+          s=p.read_text()
+          s=s.replace('private var timedResolve = false\n','private var timedResolve = false\n    private var magicPrevAngle = Float.NaN\n    private var magicDirection = 0\n')
+          s=s.replace('private fun currentTilt(): Float =\n        DuoShader.tiltFor(hinge.lastAngle, DuoSettings.config.value, innerPanel)\n','''private fun magicTilt(angle: Float, inner: Boolean): Float {\n        if (angle.isNaN()) return 0f\n        val cfg = DuoSettings.config.value\n        val peak = (DuoShader.MAX_TILT * cfg.intensity).coerceIn(0f, DuoShader.MAX_TILT)\n        return when {\n            magicDirection < 0 && inner -> {\n                val p = ((120f - angle) / (120f - 43f)).coerceIn(0f, 1f)\n                p * peak\n            }\n            magicDirection > 0 && !inner -> {\n                val p = ((angle - 150f) / (178f - 150f)).coerceIn(0f, 1f)\n                p * peak\n            }\n            else -> 0f\n        }\n    }\n\n    private fun currentTilt(): Float = magicTilt(hinge.lastAngle, innerPanel)\n''')
+          s=s.replace('''private fun onHinge(angle: Float) {\n        lastHingeMoveMs = SystemClock.uptimeMillis()\n        evaluate()\n        val tilt = DuoShader.tiltFor(angle, DuoSettings.config.value, innerPanel)\n''','''private fun onHinge(angle: Float) {\n        if (!magicPrevAngle.isNaN()) {\n            val d = angle - magicPrevAngle\n            if (kotlin.math.abs(d) >= 0.12f) magicDirection = if (d > 0f) 1 else -1\n        }\n        magicPrevAngle = angle\n        lastHingeMoveMs = SystemClock.uptimeMillis()\n        evaluate()\n        val tilt = magicTilt(angle, innerPanel)\n''')
+          s=s.replace('val tilt = DuoShader.tiltFor(angle, DuoSettings.config.value, inner)\n','val tilt = magicTilt(angle, inner)\n')
+          old='''        if (inner != innerPanel) {\n            innerPanel = inner\n            panelSwitched = true\n            if (phase != Phase.IDLE) removeOverlay() // old panel's snapshot is meaningless now\n        }\n'''
+          new='''        if (inner != innerPanel) {\n            innerPanel = inner\n            panelSwitched = true\n            if (phase == Phase.SHOWING && overlay != null) {\n                panelSwitched = false\n                restArmed = false\n                startMagicHandoffFade()\n                return\n            }\n            if (phase == Phase.CAPTURING) removeOverlay()\n        }\n'''
+          if old not in s: raise SystemExit('swap block not found')
+          s=s.replace(old,new)
+          s=s.replace('''        val nearlyDone = afterSwap && startTilt == null &&\n            if (innerPanel) angle > SKIP_INNER_ABOVE_HINGE else angle < SKIP_COVER_BELOW_HINGE\n''','        val nearlyDone = false\n')
+          s=s.replace('val tilt = startTilt ?: currentTilt()\n','''val tilt = if (afterSwap) {\n            DuoShader.MAX_TILT * DuoSettings.config.value.intensity.coerceAtMost(1f)\n        } else startTilt ?: currentTilt()\n''')
+          s=s.replace('val timed = afterSwap && !innerPanel && startTilt == null\n','val timed = afterSwap && startTilt == null\n')
+          s=s.replace('show(bitmap, tilt, fadeIn = afterSwap, timed = timed)\n','show(bitmap, tilt, fadeIn = false, timed = timed)\n')
+          marker='    private fun dismiss(fadeMs: Long) {\n'
+          helper='''    private fun startMagicHandoffFade() {\n        val view = overlay ?: return\n        handler.removeCallbacks(settleCheck)\n        follower?.cancel()\n        follower = null\n        timedResolve = true\n        val peak = DuoShader.MAX_TILT * DuoSettings.config.value.intensity.coerceAtMost(1f)\n        view.tilt = peak\n        view.alpha = 1f\n        view.animate().cancel()\n        view.animate().alpha(0f).setDuration(380L).setInterpolator(DecelerateInterpolator()).withEndAction {\n            if (overlay === view) {\n                overlay = null\n                timedResolve = false\n                phase = Phase.IDLE\n                detach(view)\n                restArmed = true\n            }\n        }.start()\n    }\n\n'''
+          if marker not in s: raise SystemExit('dismiss marker not found')
+          s=s.replace(marker,helper+marker)
+          s=s.replace('private const val TIMED_RESOLVE_TAU_S = 0.07f','private const val TIMED_RESOLVE_TAU_S = 0.11f')
+          p.write_text(s)
+          b=Path('duo-open/app/build.gradle.kts')
+          t=b.read_text().replace('versionName = "1.0.0"','versionName = "1.0.0-magicv2-asym"')
+          b.write_text(t)
+          PY
+      - name: Build APK
         working-directory: duo-open
         run: |
           chmod +x gradlew
           ./gradlew assembleDebug --stacktrace
-      - name: Upload diagnostic APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: DuoOpen-MagicV2-Diagnostic
+          name: DuoOpen-MagicV2-Asymmetric
           path: duo-open/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
