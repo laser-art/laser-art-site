@@ -1,0 +1,52 @@
+name: Build Duo Open Magic V2
+
+on:
+  push:
+    branches:
+      - duo-open-magicv2-build
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout holder repo
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Clone Duo Open
+        run: git clone --depth 1 https://github.com/marcoazeem/duo-open.git duo-open
+
+      - name: Patch for HONOR Magic V2
+        shell: python
+        run: |
+          from pathlib import Path
+
+          shader = Path('duo-open/app/src/main/java/com/duoopen/fold/DuoShader.kt')
+          s = shader.read_text()
+          s = s.replace('const val PANEL_ON_HINGE = 20f', 'const val PANEL_ON_HINGE = 43f')
+          shader.write_text(s)
+
+          service = Path('duo-open/app/src/main/java/com/duoopen/overlay/FoldOverlayService.kt')
+          s = service.read_text()
+          s = s.replace('show(bitmap, tilt, fadeIn = afterSwap, timed = timed)', 'show(bitmap, tilt, fadeIn = afterSwap && !timed, timed = timed)')
+          s = s.replace('follower?.tauS = TIMED_RESOLVE_TAU_S\n            follower?.setTarget(0f)', 'follower?.tauS = TIMED_RESOLVE_TAU_S\n            handler.postDelayed({\n                if (overlay === view && timedResolve) {\n                    follower?.setTarget(0f)\n                }\n            }, COVER_RESOLVE_DELAY_MS)')
+          s = s.replace('private const val TIMED_RESOLVE_TAU_S = 0.07f', 'private const val TIMED_RESOLVE_TAU_S = 0.11f\n        private const val COVER_RESOLVE_DELAY_MS = 70L')
+          service.write_text(s)
+
+      - name: Build debug APK
+        working-directory: duo-open
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: DuoOpen-MagicV2-debug
+          path: duo-open/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
