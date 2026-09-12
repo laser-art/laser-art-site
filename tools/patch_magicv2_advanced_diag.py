@@ -9,6 +9,16 @@ gs = gradle.read_text()
 gs = gs.replace('applicationId = "com.displaytoggle.extreme"', 'applicationId = "com.magicv2.stateswitchtester"')
 gradle.write_text(gs)
 
+# The Java classes remain in com.displaytoggle.extreme. Because applicationId is now
+# different, relative manifest names like .MainActivity would resolve to the wrong
+# package and crash immediately on launch. Make every component name explicit.
+manifest = root / 'app/src/main/AndroidManifest.xml'
+ms = manifest.read_text()
+ms = ms.replace('android:name=".MainActivity"', 'android:name="com.displaytoggle.extreme.MainActivity"')
+ms = ms.replace('android:name=".EditActivity"', 'android:name="com.displaytoggle.extreme.EditActivity"')
+ms = ms.replace('android:name=".TaskerPluginReceiver"', 'android:name="com.displaytoggle.extreme.TaskerPluginReceiver"')
+manifest.write_text(ms)
+
 (root / 'app/src/main/aidl/com/displaytoggle/extreme/IDisplayToggleService.aidl').write_text('''package com.displaytoggle.extreme;
 interface IDisplayToggleService {
     int toggleDisplays(int mode, in int[] whitelistDisplayIds);
